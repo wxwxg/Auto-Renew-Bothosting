@@ -13,7 +13,8 @@ DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN") or ""   # 单账号 Discord Toke
 GH_TOKEN      = os.environ.get("GH_TOKEN") or ""        # GitHub PAT token（用于更新 secret）
 TG_CHAT_ID    = os.environ.get("TG_CHAT_ID") or ""      # TG chat id
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN") or ""    # TG bot token
-ACCOUNTS_JSON = os.environ.get("ACCOUNTS") or ""        # 多账号 JSON 数组（优先）
+# 注意：以下变量名兼容 ACCOUNTS_JSON 和 ACCOUNTS 两种写法
+ACCOUNTS_JSON = os.environ.get("ACCOUNTS_JSON") or os.environ.get("ACCOUNTS") or ""
 
 # ---------- 代理相关（支持 NODE_LINK）----------
 IS_PROXY      = os.environ.get("IS_PROXY", "false").lower() == "true"
@@ -580,17 +581,18 @@ def process_account(account: dict, idx: int):
 def build_accounts():
     """从环境变量构建账号列表"""
     accounts = []
+    # 兼容两种环境变量名：ACCOUNTS_JSON 或 ACCOUNTS
     if ACCOUNTS_JSON:
         try:
             accounts = json.loads(ACCOUNTS_JSON)
             if not isinstance(accounts, list):
-                print("⚠️ ACCOUNTS 不是 JSON 数组，回退到单账号模式")
+                print("⚠️ ACCOUNTS_JSON 不是 JSON 数组，回退到单账号模式")
                 accounts = []
             else:
-                print(f"✅ 从 ACCOUNTS 加载了 {len(accounts)} 个账号")
+                print(f"✅ 从 ACCOUNTS_JSON 加载了 {len(accounts)} 个账号")
                 return accounts
         except json.JSONDecodeError:
-            print("⚠️ ACCOUNTS 解析失败，回退到单账号模式")
+            print("⚠️ ACCOUNTS_JSON 解析失败，回退到单账号模式")
 
     # 单账号模式：从传统环境变量构建
     if SESSION_TOKEN or DISCORD_TOKEN:
