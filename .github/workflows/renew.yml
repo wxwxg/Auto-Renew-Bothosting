@@ -28,7 +28,7 @@ jobs:
           pip install seleniumbase requests
           seleniumbase install chromedriver
 
-      # ---------- 代理配置（支持 vless，带重试和稳定下载） ----------
+      # ---------- 代理配置（支持 vless，修正变量传递） ----------
       - name: 🔗 配置代理（sing-box）
         if: env.NODE_LINK != ''
         env:
@@ -95,11 +95,15 @@ jobs:
             exit 0
           fi
 
-          python3 << 'EOF'
-          import json, re, sys
+          # 关键修正：使用不带引号的 EOF，使 shell 变量展开
+          python3 << EOF
+          import json, re, sys, os
           from urllib.parse import urlparse, parse_qs
 
-          link = """${VLESS}"""
+          link = os.environ.get('VLESS', '')
+          if not link:
+              print("⚠️ 环境变量 VLESS 为空，跳过")
+              sys.exit(0)
           parsed = urlparse(link)
           if parsed.scheme != 'vless':
               print("⚠️ 协议不是 vless，跳过")
@@ -178,7 +182,7 @@ jobs:
               echo "⚠️ 未生成配置文件，跳过代理"
           fi
 
-      # ---------- 运行续期脚本（使用多账号 ACCOUNTS_JSON） ----------
+      # ---------- 运行续期脚本 ----------
       - name: 🚀 运行续期脚本
         env:
           ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
