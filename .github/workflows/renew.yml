@@ -28,7 +28,7 @@ jobs:
           pip install seleniumbase requests
           seleniumbase install chromedriver
 
-      # ---------- 代理配置（支持 vless，已修正变量导出） ----------
+      # ---------- 代理配置（支持 vless，修正 transport） ----------
       - name: 🔗 配置代理（sing-box）
         if: env.NODE_LINK != ''
         env:
@@ -90,7 +90,6 @@ jobs:
 
           echo "📝 解析 vless 链接并生成配置文件..."
           VLESS=$(echo "${NODE_LINK}" | tr -d ' \n\r\t')
-          # 关键修正：导出环境变量，供 Python 子进程读取
           export VLESS
 
           if [[ ! "$VLESS" =~ ^vless:// ]]; then
@@ -141,9 +140,12 @@ jobs:
                   "insecure": False,
                   "utls": {"enabled": True, "fingerprint": fp}
               },
-              "transport": {"type": type_},
               "packet_encoding": "packetaddr"
           }
+          # 只有传输类型不是 tcp 时才添加 transport
+          if type_ != 'tcp':
+              outbound["transport"] = {"type": type_}
+
           # Reality 支持
           if security == 'reality':
               pbk = params.get('pbk', [''])[0]
