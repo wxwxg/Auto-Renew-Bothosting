@@ -34,31 +34,23 @@ HEADLESS = os.environ.get("HEADLESS", "false").lower() == "true"
 # ---------- 工具函数 ----------
 def send_telegram_message(message: str):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
-        print("⚠️ Telegram 未配置，跳过通知")
         return
-    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage"
     try:
-        requests.post(url, json={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
+        requests.post(f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendMessage",
+                      json={"chat_id": TG_CHAT_ID, "text": message}, timeout=10)
         print("✅ Telegram 通知已发送")
     except Exception as e:
         print(f"❌ Telegram 发送失败: {e}")
 
-def format_notification(status: str, email: str, login_method: str = "SESSION_TOKEN",
-                        extra: str = "", error: str = "", expiry_date: str = "") -> str:
-    local_time = time.gmtime(time.time() + 8 * 3600)
-    now = time.strftime("%Y-%m-%d %H:%M:%S", local_time)
+def format_notification(status, email, login_method="SESSION_TOKEN", extra="", error="", expiry_date=""):
+    now = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(time.time() + 28800))
     if '@' in email:
         name, domain = email.split('@', 1)
-        if len(name) > 4:
-            masked_email = f"{name[:2]}****{name[-2:]}@{domain}"
-        else:
-            masked_email = f"{name}@{domain}"
+        masked_email = f"{name[:2]}****{name[-2:]}@{domain}" if len(name)>4 else f"{name}@{domain}"
     else:
-        masked_email = email[:2] + '****' if len(email) > 4 else email
+        masked_email = email[:2] + '****'
     lines = [
-        "🇫🇮 Bot-hosting 续期通知",
-        "",
-        f"{status}",
+        "🇫🇮 Bot-hosting 续期通知", "", f"{status}",
         f"👤 登录账户: {masked_email}",
     ]
     if login_method != "SESSION_TOKEN":
@@ -72,30 +64,26 @@ def format_notification(status: str, email: str, login_method: str = "SESSION_TO
     lines.append(f"⏱️ 登录时间: {now}")
     return "\n".join(lines)
 
-def get_current_ip(proxy_server: str = "") -> str:
-    proxies = None
-    if proxy_server:
-        proxies = {"http": proxy_server, "https": proxy_server}
+def get_current_ip(proxy_server=""):
+    proxies = {"http": proxy_server, "https": proxy_server} if proxy_server else None
     response = requests.get("https://api.ip.sb/ip", proxies=proxies, timeout=15)
     response.raise_for_status()
     return response.text.strip()
 
-def format_countdown(countdown_str: str) -> str:
+def format_countdown(countdown_str):
     try:
         h, m, _ = countdown_str.split(':')
-        h = int(h)
-        m = int(m)
+        h, m = int(h), int(m)
         return f"{h}h{m}min" if h > 0 else f"{m}min"
     except:
         return countdown_str
 
-def extract_expiry_date(page_source: str) -> str:
+def extract_expiry_date(page_source):
     patterns = [
         r"[Ee]xpires\s*[:\-]?\s*(\d{4}/\d{2}/\d{2})",
         r"[Ee]xpires\s*[:\-]?\s*(\d{2}/\d{2}/\d{4})",
         r"(\d{4}/\d{2}/\d{2})\s*[\-–]\s*renew",
         r"(\d{2}/\d{2}/\d{4})\s*[\-–]\s*renew",
-        r"(\d{4}/\d{2}/\d{2})\s*[\-–]\s*renew manually to extend for 4 days",
     ]
     for pattern in patterns:
         match = re.search(pattern, page_source)
@@ -109,8 +97,7 @@ def extract_expiry_date(page_source: str) -> str:
     return None
 
 def get_cookie_info(sb, name):
-    cookies = sb.get_cookies()
-    for c in cookies:
+    for c in sb.get_cookies():
         if c.get('name') == name:
             return c.get('value'), datetime.fromtimestamp(c.get('expiry')) if c.get('expiry') else None
     return None, None
@@ -119,14 +106,12 @@ def should_update_cookie(new_value, old_value, expiry_dt, days_threshold=3):
     if not new_value or new_value == old_value:
         return False
     if expiry_dt:
-        remaining = (expiry_dt - datetime.now()).total_seconds()
-        if remaining < days_threshold * 24 * 3600:
-            return True
-    return True  # 值变化或即将过期
+        return (expiry_dt - datetime.now()).total_seconds() < days_threshold * 86400
+    return True
 
 def update_github_secret(secret_name, new_value):
     if not new_value:
-        print(f"⚠️ 跳过更新 {secret_name}：新值为空")
+        print("⚠️ 跳过更新：新值为空")
         return False
     masked = new_value[:4] + "..." + new_value[-4:] if len(new_value) > 8 else "***"
     print(f"🔄 更新 Secret: {secret_name} (新值: {masked})")
@@ -136,8 +121,7 @@ def update_github_secret(secret_name, new_value):
             env["GH_TOKEN"] = GH_TOKEN
         proc = subprocess.run(
             ["gh", "secret", "set", secret_name, "--body", new_value],
-            capture_output=True, text=True, timeout=30, check=False,
-            env=env
+            capture_output=True, text=True, timeout=30, check=False, env=env
         )
         if proc.returncode == 0:
             return True
@@ -148,59 +132,48 @@ def update_github_secret(secret_name, new_value):
         print(f"❌ 异常: {e}")
         return False
 
-# ---------- Discord OAuth ----------
-DISCORD_CLIENT_ID   = "884382422530158623"
-OAUTH_REDIRECT_URI  = "https://bot-hosting.net/login"
-OAUTH_SCOPE         = "identify email guilds"
-DISCORD_API         = "https://discord.com/api/v9/oauth2/authorize"
-DISCORD_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
-)
+# ---------- Discord OAuth (简化) ----------
+DISCORD_CLIENT_ID = "884382422530158623"
+OAUTH_REDIRECT_URI = "https://bot-hosting.net/login"
+OAUTH_SCOPE = "identify email guilds"
+DISCORD_API = "https://discord.com/api/v9/oauth2/authorize"
 STATE_RE = re.compile(r"[?&]state=([^&]+)")
 
-def capture_discord_state(sb) -> str:
+def capture_discord_state(sb):
     print("🔎 获取 Discord OAuth state...")
     sb.uc_open_with_reconnect("https://bot-hosting.net/login/discord", reconnect_time=4)
     time.sleep(2)
     url = sb.get_current_url()
     if "discord.com" not in url:
-        print(f"⚠️ 未跳转到 Discord 相关页面，当前 URL：{url}")
         return ""
     m = STATE_RE.search(url)
     if not m:
-        print(f"❌ 未能从 URL 中解析出 state，当前 URL：{url}")
         return ""
-    state = urllib.parse.unquote(m.group(1))
-    print(f"✅ 已捕获 state（当前落地页：{urllib.parse.urlparse(url).path}）")
-    return state
+    return urllib.parse.unquote(m.group(1))
 
-def discord_authorize(state: str, discord_token: str) -> str:
+def discord_authorize(state, discord_token):
     query = urllib.parse.urlencode({
-        "client_id":     DISCORD_CLIENT_ID,
+        "client_id": DISCORD_CLIENT_ID,
         "response_type": "code",
-        "redirect_uri":  OAUTH_REDIRECT_URI,
-        "scope":         OAUTH_SCOPE,
-        "state":         state,
+        "redirect_uri": OAUTH_REDIRECT_URI,
+        "scope": OAUTH_SCOPE,
+        "state": state,
     })
     authorize_url = f"{DISCORD_API}?{query}"
-    referer = (
-        "https://discord.com/oauth2/authorize?" +
-        urllib.parse.urlencode({
-            "client_id":     DISCORD_CLIENT_ID,
-            "redirect_uri":  OAUTH_REDIRECT_URI,
-            "response_type": "code",
-            "scope":         OAUTH_SCOPE,
-            "state":         state,
-        })
-    )
+    referer = "https://discord.com/oauth2/authorize?" + urllib.parse.urlencode({
+        "client_id": DISCORD_CLIENT_ID,
+        "redirect_uri": OAUTH_REDIRECT_URI,
+        "response_type": "code",
+        "scope": OAUTH_SCOPE,
+        "state": state,
+    })
     headers = {
-        "accept":           "*/*",
-        "authorization":    discord_token,
-        "content-type":     "application/json",
-        "origin":           "https://discord.com",
-        "referer":          referer,
-        "user-agent":       DISCORD_UA,
+        "accept": "*/*",
+        "authorization": discord_token,
+        "content-type": "application/json",
+        "origin": "https://discord.com",
+        "referer": referer,
+        "user-agent": "Mozilla/5.0",
         "x-discord-locale": "zh-CN",
     }
     body = json.dumps({
@@ -213,19 +186,12 @@ def discord_authorize(state: str, discord_token: str) -> str:
     try:
         resp = requests.post(authorize_url, headers=headers, data=body, proxies=proxies, timeout=20)
         if resp.status_code != 200:
-            print(f"❌ Discord OAuth2 授权失败: HTTP {resp.status_code}")
             return ""
-        location = resp.json().get("location", "")
-        if not location:
-            print(f"❌ 授权响应中未找到 location 字段")
-            return ""
-        print(f"✅ 拿到回调 URL")
-        return location
-    except Exception as e:
-        print(f"❌ Discord OAuth2 授权异常: {e}")
+        return resp.json().get("location", "")
+    except:
         return ""
 
-def do_discord_login(sb, discord_token: str) -> bool:
+def do_discord_login(sb, discord_token):
     print("\n🔑 通过 Discord Token 登录...")
     state = capture_discord_state(sb)
     if not state:
@@ -233,46 +199,28 @@ def do_discord_login(sb, discord_token: str) -> bool:
     location = discord_authorize(state, discord_token)
     if not location:
         return False
-    print("↩️ 携带授权码打开回调链接...")
     sb.uc_open_with_reconnect(location, reconnect_time=4)
     time.sleep(3)
-    url = sb.get_current_url()
-    if "/error/banned" in url:
+    if "/error/banned" in sb.get_current_url():
         print("🚫 账号已被封禁")
         return False
-    if "bot-hosting.net" not in url:
-        print(f"❌ 回调后未跳转至 bot-hosting.net，当前 URL：{url}")
-        return False
-    try:
-        body_text = sb.get_text("body")
-        if "fraud" in body_text.lower():
-            print("🚫 触发风控（fraud attempt）")
-            return False
-    except:
-        pass
     for _ in range(30):
         url = sb.get_current_url()
-        path = urllib.parse.urlparse(url).path
-        if "bot-hosting.net" in url and path != "/login" and not path.startswith("/login/discord"):
-            print(f"✅ Discord OAuth 登录成功！当前页面：{url}")
+        if "bot-hosting.net" in url and "/login" not in url and not url.startswith("https://bot-hosting.net/login"):
             return True
         time.sleep(0.5)
-    print(f"❌ 登录超时，最终停留在：{url}")
     return False
 
 # ---------- 核心处理 ----------
-def process_account(account: dict, idx: int):
+def process_account(account, idx):
     email = account.get("email", f"账号{idx+1}")
     session_token = account.get("session_token", "")
     discord_token = account.get("discord_token", "")
-    secret_name = account.get("secret_name", None)
+    secret_name = account.get("secret_name", None) or ("SESSION_TOKEN" if idx == 0 else f"SESSION_TOKEN_{idx}")
 
     if not session_token and not discord_token:
         print(f"⚠️ 账号 {email} 缺少 Token，跳过")
         return
-
-    if not secret_name:
-        secret_name = "SESSION_TOKEN" if idx == 0 else f"SESSION_TOKEN_{idx}"
 
     sb_kwargs = {"uc": True, "headless": HEADLESS}
     if IS_PROXY:
@@ -369,17 +317,13 @@ def process_account(account: dict, idx: int):
                 friendly = format_countdown(countdown_text)
                 print(f"⏳ 未到续期时间，倒计时: {countdown_text} ({friendly})")
                 send_telegram_message(
-                    format_notification(
-                        "⏳ 未到续期时间", email, login_method,
-                        extra=f"⏱️ 可续期时间: {friendly}后",
-                        expiry_date=current_expiry or "（未获取到）"
-                    )
+                    format_notification("⏳ 未到续期时间", email, login_method,
+                                       extra=f"⏱️ 可续期时间: {friendly}后",
+                                       expiry_date=current_expiry or "（未获取到）")
                 )
             else:
                 print("ℹ️ 未找到续期按钮或倒计时，状态未知")
-                send_telegram_message(
-                    format_notification("ℹ️ 无需续期", email, login_method, extra="状态未知，请手动检查")
-                )
+                send_telegram_message(format_notification("ℹ️ 无需续期", email, login_method, extra="状态未知，请手动检查"))
             # 仍更新 token
             new_token, _ = get_cookie_info(sb, "session_token")
             if new_token and new_token != session_token and GH_TOKEN:
@@ -387,7 +331,7 @@ def process_account(account: dict, idx: int):
             print(f"🏁 账号 {email} 处理完毕")
             return
 
-        # ---------- 执行续期（带 Turnstile 处理） ----------
+        # ---------- 执行续期 ----------
         renew_success = False
         for attempt in range(1, 3):
             if renew_success:
@@ -397,25 +341,20 @@ def process_account(account: dict, idx: int):
                 # 点击外部续期按钮
                 print("🔄 点击外部续期按钮，等待验证窗口...")
                 sb.click(outer_renew_selector)
-                sb.sleep(5)  # 等待模态框加载
+                sb.sleep(5)
 
-                # 处理 Turnstile 验证
+                # ---------- Turnstile 处理 ----------
                 print("🔒 处理 Turnstile 验证...")
-                # 先尝试无头模式兼容点击（uc_click_captcha）
                 try:
-                    if hasattr(sb, 'uc_click_captcha'):
-                        sb.uc_click_captcha()
-                        print("✅ 使用 uc_click_captcha 点击")
-                    else:
-                        sb.uc_gui_click_captcha()
-                        print("✅ 使用 uc_gui_click_captcha 点击")
+                    sb.uc_click_captcha()  # 无头模式兼容
+                    print("✅ Turnstile 点击已触发")
                 except Exception as e:
-                    print(f"⚠️ Turnstile 点击出错: {e}")
+                    print(f"⚠️ Turnstile 点击异常: {e}")
 
                 # 等待模态框内续期按钮出现
                 renew_button_selector = 'button:contains("Renew for 4 days")'
                 button_found = False
-                for wait_sec in range(35):
+                for wait_sec in range(40):
                     try:
                         if sb.is_element_visible(renew_button_selector, timeout=1):
                             button_found = True
@@ -423,20 +362,17 @@ def process_account(account: dict, idx: int):
                             break
                     except:
                         pass
-                    # 每 5 秒重试点击 Turnstile
-                    if wait_sec % 5 == 0 and wait_sec > 0:
+                    # 每 8 秒重试点击 Turnstile
+                    if wait_sec % 8 == 0 and wait_sec > 0:
                         try:
-                            if hasattr(sb, 'uc_click_captcha'):
-                                sb.uc_click_captcha()
-                            else:
-                                sb.uc_gui_click_captcha()
+                            sb.uc_click_captcha()
                         except:
                             pass
                     time.sleep(1)
 
                 if not button_found:
                     print("❌ 续期按钮未出现，Turnstile 验证失败")
-                    # 关闭模态框（按 ESC）
+                    # 关闭模态框
                     sb.driver.execute_script("""
                         var modal = document.querySelector('.modal, .overlay, [role="dialog"]');
                         if (modal) modal.style.display = 'none';
@@ -458,7 +394,6 @@ def process_account(account: dict, idx: int):
                 sb.wait_for_ready_state_complete()
                 sb.sleep(8)
 
-                # 检查到期日期是否变化
                 new_page_text = sb.get_page_source()
                 new_expiry = extract_expiry_date(new_page_text)
                 new_match = re.search(r"Renew in (\d{2}:\d{2}:\d{2})", new_page_text)
@@ -484,7 +419,7 @@ def process_account(account: dict, idx: int):
                     break
                 else:
                     print("⚠️ 续期结果未知，到期日期未变化")
-                    # 第二次刷新检查
+                    # 再次刷新
                     sb.sleep(5)
                     sb.open("https://bot-hosting.net/a/billings")
                     sb.wait_for_ready_state_complete()
@@ -500,7 +435,6 @@ def process_account(account: dict, idx: int):
                         break
                     else:
                         print("❌ 续期失败，准备重试")
-                        # 关闭残留模态框
                         try:
                             sb.driver.execute_script("""
                                 var modal = document.querySelector('.modal, .overlay, [role="dialog"]');
@@ -552,7 +486,6 @@ def build_accounts():
                 return accounts
         except:
             print("⚠️ ACCOUNTS_JSON 解析失败，回退到单账号模式")
-
     if SESSION_TOKEN or DISCORD_TOKEN:
         accounts.append({
             "email": EMAIL or "default@example.com",
