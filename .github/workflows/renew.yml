@@ -28,7 +28,7 @@ jobs:
           pip install --upgrade seleniumbase requests
           seleniumbase install chromedriver
 
-      # ---------- 代理配置（sing-box） ----------
+      # ---------- 代理配置（sing-box，支持 IPv6） ----------
       - name: 🔗 配置代理（sing-box）
         if: env.NODE_LINK != ''
         env:
@@ -49,7 +49,7 @@ jobs:
             fi
             echo "⚠️ 重试..."; rm -f sing-box.tar.gz; sleep 3
           done
-          [ -f sing-box.tar.gz ] || { echo "❌ 下载失败"; exit 0; }
+          [ -f sing-box.tar.gz ] || { echo "❌ 下载失败，跳过代理"; exit 0; }
           tar -xzf sing-box.tar.gz
           SING_BOX_DIR=$(find . -maxdepth 1 -type d -name "sing-box-*" | head -1)
           [ -z "$SING_BOX_DIR" ] && { echo "❌ 解压失败"; exit 1; }
@@ -64,41 +64,51 @@ jobs:
           if [[ ! "$VLESS" =~ ^vless:// ]]; then
             echo "⚠️ 链接不是 vless:// 协议，跳过代理"; exit 0
           fi
-          python3 << EOF
-          import json, sys, os
+
+          # ---------- 使用更健壮的 Python 解析（支持 IPv6） ----------
+          python3 << 'PYEOF'
+          import json, sys, os, re
           from urllib.parse import urlparse, parse_qs
-          import re
 
           link = os.environ.get('VLESS', '')
-          if not link: sys.exit(0)
+          if not link:
+              sys.exit(0)
+
           parsed = urlparse(link)
-          if parsed.scheme != 'vless': sys.exit(0)
+          if parsed.scheme != 'vless':
+              sys.exit(0)
 
           netloc = parsed.netloc
+          # 分离 uuid 和 host:port
           if '@' in netloc:
               uuid, host_port = netloc.split('@', 1)
           else:
               uuid, host_port = '', netloc
 
-          # 处理 IPv6 地址和端口
+          # 处理 host 和 port（支持 IPv6）
           host = ''
-          port = '443'
-          # 如果 host_port 被方括号包裹，如 [::1]:8080 或 [2001:db8::1]
+          port = '443'  # 默认端口
+          # 先尝试匹配 [IPv6]:port 格式
           bracket_match = re.match(r'^\[([^\]]+)\](?::(\d+))?$', host_port)
           if bracket_match:
               host = bracket_match.group(1)
               if bracket_match.group(2):
                   port = bracket_match.group(2)
           else:
-              # 判断是否为 IPv6 地址（包含多个冒号）
+              # 如果不是方括号格式，检查是否为纯 IPv6（包含多个冒号）
               if host_port.count(':') > 1:
-                  host = host_port  # 整个是 IPv6 地址，无端口
+                  host = host_port  # 整个是 IPv6，无端口
               else:
-                  # 普通 IPv4 或域名:端口
+                  # 普通 host:port 或 host
                   if ':' in host_port:
                       host, port = host_port.split(':', 1)
                   else:
                       host = host_port
+
+          # 如果 host 为空，报错退出
+          if not host:
+              print(f"❌ 无法解析主机地址: {host_port}")
+              sys.exit(1)
 
           params = parse_qs(parsed.query)
           sni = params.get('sni', [''])[0] or host
@@ -138,8 +148,9 @@ jobs:
           with open("sing-box-config.json", "w") as f:
               json.dump(config, f, indent=2)
           print("✅ 配置已生成")
-          EOF
+          PYEOF
 
+          # 检查配置文件是否生成成功
           if [ -f sing-box-config.json ]; then
               echo "🚀 启动 sing-box..."
               nohup sing-box -c sing-box-config.json run > sing-box.log 2>&1 &
@@ -147,7 +158,9 @@ jobs:
               if netstat -tuln | grep -q ':1080'; then
                   echo "✅ 代理已启动（127.0.0.1:1080）"
               else
-                  echo "❌ 代理启动失败"; cat sing-box.log; exit 1
+                  echo "❌ 代理启动失败，查看日志："
+                  cat sing-box.log
+                  exit 1
               fi
           else
               echo "⚠️ 未生成配置文件，跳过代理"
