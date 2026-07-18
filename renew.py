@@ -13,10 +13,9 @@ DISCORD_TOKEN = os.environ.get("DISCORD_TOKEN") or ""
 GH_TOKEN      = os.environ.get("GH_TOKEN") or ""        
 TG_CHAT_ID    = os.environ.get("TG_CHAT_ID") or ""      
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN") or ""    
-# 兼容 ACCOUNTS_JSON 和 ACCOUNTS
 ACCOUNTS_JSON = os.environ.get("ACCOUNTS_JSON") or os.environ.get("ACCOUNTS") or ""
 
-# ---------- 代理相关 ----------
+# ---------- 代理 ----------
 IS_PROXY      = os.environ.get("IS_PROXY", "false").lower() == "true"
 PROXY_SERVER  = os.environ.get("PROXY_SERVER", "").strip() or "http://127.0.0.1:1080"
 NODE_LINK     = os.environ.get("NODE_LINK", "").strip()
@@ -34,7 +33,6 @@ HEADLESS = os.environ.get("HEADLESS", "false").lower() == "true"
 
 # ---------- 工具函数 ----------
 def send_telegram_message(message: str):
-    """发送 Telegram 通知"""
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("⚠️ Telegram 未配置，跳过通知")
         return
@@ -171,7 +169,7 @@ def wait_for_turnstile_pass(sb, timeout=30):
     print("❌ Turnstile 验证超时未通过")
     return False
 
-# ---------- Discord OAuth 相关 ----------
+# ---------- Discord OAuth ----------
 DISCORD_CLIENT_ID   = "884382422530158623"
 OAUTH_REDIRECT_URI  = "https://bot-hosting.net/login"
 OAUTH_SCOPE         = "identify email guilds"
@@ -301,7 +299,7 @@ def do_discord_login(sb, discord_token: str) -> bool:
     sb.save_screenshot("login_timeout.png")
     return False
 
-# ---------- 核心处理函数 ----------
+# ---------- 核心处理 ----------
 def process_account(account: dict, idx: int):
     email = account.get("email", f"账号{idx+1}")
     session_token = account.get("session_token", "")
@@ -395,6 +393,7 @@ def process_account(account: dict, idx: int):
             )
             return
 
+        # ---------- 获取当前到期日期 ----------
         sb.sleep(2)
         page_source = sb.get_page_source()
         current_expiry = extract_expiry_date(page_source)
@@ -403,6 +402,7 @@ def process_account(account: dict, idx: int):
         else:
             print("⚠️ 未能提取当前到期日期")
 
+        # ---------- 查找续期按钮 ----------
         outer_renew_selector = None
         countdown_text = None
         possible_selectors = [
@@ -428,6 +428,7 @@ def process_account(account: dict, idx: int):
             except Exception:
                 pass
 
+        # ---------- 执行续期 ----------
         if outer_renew_selector:
             print("🔄 点击外部续期按钮，等待验证窗口...")
             try:
@@ -441,15 +442,14 @@ def process_account(account: dict, idx: int):
                 )
                 return
 
+            # ---------- Turnstile 验证（关键修正） ----------
             print("🔒 检测弹窗中的 Turnstile 验证...")
             turnstile_passed = False
             for attempt in range(1, 4):
                 try:
-                    # ------------------ 核心修改 ------------------
-                    # 使用无头模式兼容的点击方法
-                    sb.uc_click_captcha()
-                    # -------------------------------------------
-                    time.sleep(15)  # 增加等待时间
+                    # 使用 uc_gui_click_captcha（即便在无头模式下报错，但可能仍有作用）
+                    sb.uc_gui_click_captcha()
+                    time.sleep(15)
                 except Exception as e:
                     print(f"⚠️ 点击 Turnstile 出错: {e}")
 
@@ -466,6 +466,7 @@ def process_account(account: dict, idx: int):
                 )
                 return
 
+            # ---------- 点击续期按钮 ----------
             print("⏳ 等待续期按钮可用并点击...")
             time.sleep(5)
             try:
@@ -474,12 +475,19 @@ def process_account(account: dict, idx: int):
             except Exception as e:
                 print(f"续期按钮点击失败: {e}")
 
-            print("⏳ 等待新的过期时间...")
-            sb.sleep(6)
+            print("⏳ 等待续期完成...")
+            sb.sleep(10)  # 增加等待
 
+            # 刷新页面以获取最新状态
+            sb.open("https://bot-hosting.net/a/billings")
+            sb.wait_for_ready_state_complete()
+            sb.sleep(5)
+
+            # 提取新的到期日期和倒计时
             new_page_text = sb.get_page_source()
             new_expiry = extract_expiry_date(new_page_text)
             new_match = re.search(r"Renew in (\d{2}:\d{2}:\d{2})", new_page_text)
+
             if new_match:
                 new_countdown = new_match.group(1)
                 print(f"✅ 续期成功！新的倒计时: {new_countdown}")
@@ -532,6 +540,7 @@ def process_account(account: dict, idx: int):
                     )
                 )
 
+        # ---------- 更新 SESSION_TOKEN ----------
         print("🔄 检查 SESSION_TOKEN 是否需要更新")
         new_token, token_expiry = get_cookie_info(sb, "session_token")
         old_token = session_token
