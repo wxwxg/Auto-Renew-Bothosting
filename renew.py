@@ -15,10 +15,23 @@ TG_CHAT_ID    = os.environ.get("TG_CHAT_ID") or ""      # TG chat id
 TG_BOT_TOKEN  = os.environ.get("TG_BOT_TOKEN") or ""    # TG bot token
 ACCOUNTS_JSON = os.environ.get("ACCOUNTS") or ""        # 多账号 JSON 数组（优先）
 
-# 代理与 Headless 配置（全局）
+# ---------- 代理相关（支持 NODE_LINK）----------
 IS_PROXY      = os.environ.get("IS_PROXY", "false").lower() == "true"
 PROXY_SERVER  = os.environ.get("PROXY_SERVER", "").strip() or "http://127.0.0.1:1080"
-HEADLESS      = os.environ.get("HEADLESS", "false").lower() == "true"
+NODE_LINK     = os.environ.get("NODE_LINK", "").strip()   # 新增：代理链接（如 vless://, vmess://, socks5:// 等）
+
+# 如果提供了 NODE_LINK，则优先使用它作为代理，并覆盖原有代理设置
+if NODE_LINK:
+    IS_PROXY = True
+    PROXY_SERVER = NODE_LINK
+    print(f"🔗 使用 NODE_LINK 代理: {PROXY_SERVER[:50]}...")  # 打印前50字符以免泄露敏感信息
+else:
+    if IS_PROXY:
+        print(f"🔗 使用 PROXY_SERVER 代理: {PROXY_SERVER}")
+    else:
+        print("🍭 未使用代理，直连访问")
+
+HEADLESS = os.environ.get("HEADLESS", "false").lower() == "true"
 
 # ---------- 工具函数 ----------
 def send_telegram_message(message: str):
@@ -66,7 +79,7 @@ def format_notification(status: str, email: str, login_method: str = "SESSION_TO
     return "\n".join(lines)
 
 def get_current_ip(proxy_server: str = "") -> str:
-    """获取当前出口 IP"""
+    """获取当前出口 IP（使用 requests，支持代理）"""
     proxies = None
     if proxy_server:
         proxies = {"http": proxy_server, "https": proxy_server}
@@ -198,7 +211,7 @@ def capture_discord_state(sb) -> str:
     return state
 
 def discord_authorize(state: str, discord_token: str) -> str:
-    """使用 Discord Token 完成授权，返回回调 URL"""
+    """使用 Discord Token 完成授权，返回回调 URL（代理全局）"""
     query = urllib.parse.urlencode({
         "client_id":     DISCORD_CLIENT_ID,
         "response_type": "code",
@@ -326,10 +339,10 @@ def process_account(account: dict, idx: int):
         else:
             secret_name = f"SESSION_TOKEN_{idx}"
 
-    # 构造浏览器参数
+    # 构造浏览器参数（使用全局代理和 Headless）
     sb_kwargs = {"uc": True, "headless": HEADLESS}
     if IS_PROXY:
-        print(f"🔗 挂载代理: {PROXY_SERVER}")
+        print(f"🔗 挂载代理: {PROXY_SERVER[:50]}...")
         sb_kwargs["proxy"] = PROXY_SERVER
     else:
         print("🍭 未使用代理，直连访问")
@@ -597,7 +610,7 @@ def build_accounts():
 # ---------- 主函数 ----------
 def main():
     print("#" * 25)
-    print("   Bot-hosting 自动续期（多账号）")
+    print("   Bot-hosting 自动续期（多账号 + 代理）")
     print("#" * 25)
 
     accounts = build_accounts()
@@ -610,7 +623,7 @@ def main():
         process_account(acc, idx)
         # 账号之间适当延迟，避免风控
         if idx < len(accounts) - 1:
-            wait_seconds = 180
+            wait_seconds = 30
             print(f"⏳ 等待 {wait_seconds} 秒后处理下一个账号...")
             time.sleep(wait_seconds)
 
