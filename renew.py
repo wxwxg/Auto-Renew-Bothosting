@@ -367,10 +367,12 @@ def process_account(account, idx):
             current_expiry = None
             print("⚠️ 获取页面源码失败")
 
-        # ---------- 查找外部续期按钮（XPath 列表） ----------
+        # ---------- 查找外部续期按钮（加入用户提供的 XPath） ----------
         outer_renew_selector = None
         countdown_text = None
+        # 用户提供的 XPath（按钮的父级 <button>）
         xpath_selectors = [
+            '/html/body/div/div[1]/div[3]/main/div/div/section[1]/div[3]/div/button[1]',  # 新增
             '//button[contains(text(),"Renew free plan")]',
             '//a[contains(text(),"Renew free plan")]',
             '//button[contains(text(),"Renew")]',
@@ -479,7 +481,7 @@ def process_account(account, idx):
                     except Exception as e:
                         print(f"⚠️ uc_gui_click_captcha 失败: {e}")
 
-                # ---------- 关键修改：强制等待 60 秒后直接点击 ----------
+                # ---------- 强制等待 60 秒后直接点击模态框续期按钮 ----------
                 print("⏳ 强制等待 60 秒，确保续期按钮加载完成...")
                 time.sleep(60)
                 renew_button_xpath = '/html/body/div/div[1]/div[3]/main/div/div[2]/div[2]/div[2]/button'
