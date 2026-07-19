@@ -435,30 +435,19 @@ def process_account(account, idx):
                 sb.sleep(5)
                 sb.save_screenshot(f"after_click_renew_{email}_{int(time.time())}.png")
 
-                # ---------- Turnstile 处理（保持不变） ----------
+                # ---------- Turnstile 处理（简化） ----------
                 print("🔒 处理 Turnstile 验证...")
+                # 等待模态框
                 modal_selector = '.modal, .overlay, [role="dialog"], .challenge-modal, .popup, .dialog'
-                modal_found = False
                 for _ in range(15):
                     try:
                         if sb.is_element_visible(modal_selector, timeout=1):
-                            modal_found = True
                             break
                     except:
                         pass
                     time.sleep(1)
-                if not modal_found:
-                    print("⚠️ 未检测到模态框，可能页面未正常弹出")
-                    sb.save_screenshot(f"no_modal_{email}_{int(time.time())}.png")
-                    sb.execute_script("window.scrollTo(0, 0);")
-                    try:
-                        sb.click(outer_renew_selector)
-                    except:
-                        pass
-                    sb.sleep(3)
-                else:
-                    sb.save_screenshot(f"modal_found_{email}_{int(time.time())}.png")
 
+                # 检测 iframe
                 iframe_selector = 'iframe[src*="turnstile"], iframe[src*="cloudflare"], iframe[src*="challenge"]'
                 iframe_found = False
                 for _ in range(15):
@@ -472,116 +461,37 @@ def process_account(account, idx):
 
                 if iframe_found:
                     print("✅ Turnstile iframe 已加载")
-                    sb.save_screenshot(f"iframe_found_{email}_{int(time.time())}.png")
                     try:
                         sb.switch_to_frame(iframe_selector)
-                        checkbox_selectors = [
-                            '.challenge-container input[type="checkbox"]',
-                            '.cf-turnstile input[type="checkbox"]',
-                            '.cf-checkbox',
-                            'input[type="checkbox"]'
-                        ]
-                        clicked = False
-                        for cs in checkbox_selectors:
-                            try:
-                                if sb.is_element_visible(cs, timeout=1):
-                                    sb.click(cs)
-                                    clicked = True
-                                    print(f"✅ 点击 Turnstile 复选框 ({cs})")
-                                    sb.save_screenshot(f"checkbox_clicked_{email}_{int(time.time())}.png")
-                                    break
-                            except:
-                                pass
-                        if not clicked:
-                            print("⚠️ 未找到复选框，尝试点击 iframe 中心区域")
-                            sb.execute_script("""
-                                var iframe = document.querySelector('iframe[src*="turnstile"]');
-                                if (iframe) {
-                                    var rect = iframe.getBoundingClientRect();
-                                    var x = rect.left + rect.width/2;
-                                    var y = rect.top + rect.height/2;
-                                    var ev = new MouseEvent('click', {clientX: x, clientY: y});
-                                    iframe.dispatchEvent(ev);
-                                }
-                            """)
-                            sb.save_screenshot(f"iframe_center_click_{email}_{int(time.time())}.png")
+                        try:
+                            sb.click('input[type="checkbox"]')
+                            print("✅ 点击 Turnstile 复选框")
+                        except:
+                            pass
                         sb.switch_to_default_content()
-                    except Exception as e:
-                        print(f"⚠️ 操作 iframe 失败: {e}")
-                        sb.switch_to_default_content()
+                    except:
+                        pass
                 else:
                     print("⚠️ Turnstile iframe 未加载，尝试 uc_gui_click_captcha")
-                    sb.save_screenshot(f"no_iframe_{email}_{int(time.time())}.png")
                     try:
                         sb.uc_gui_click_captcha()
                         print("✅ Turnstile 点击已触发 (uc_gui_click_captcha)")
-                        sb.save_screenshot(f"uc_gui_click_{email}_{int(time.time())}.png")
                     except Exception as e:
                         print(f"⚠️ uc_gui_click_captcha 失败: {e}")
-                        try:
-                            sb.execute_script("""
-                                var iframe = document.querySelector('iframe[src*="turnstile"]');
-                                if (iframe) {
-                                    var rect = iframe.getBoundingClientRect();
-                                    var x = rect.left + rect.width/2;
-                                    var y = rect.top + rect.height/2;
-                                    var ev = new MouseEvent('click', {clientX: x, clientY: y});
-                                    iframe.dispatchEvent(ev);
-                                }
-                            """)
-                            print("✅ 后备 JS 点击已执行")
-                            sb.save_screenshot(f"js_backup_click_{email}_{int(time.time())}.png")
-                        except:
-                            pass
 
-                # ---------- 关键修改：使用绝对 XPath + 强制等待 60 秒 ----------
-                # 用户提供的绝对 XPath
+                # ---------- 关键修改：强制等待 60 秒后直接点击 ----------
+                print("⏳ 强制等待 60 秒，确保续期按钮加载完成...")
+                time.sleep(60)
                 renew_button_xpath = '/html/body/div/div[1]/div[3]/main/div/div[2]/div[2]/div[2]/button'
-                button_found = False
-                print("⏳ 强制等待按钮加载（最长 60 秒）...")
-                for wait_sec in range(60):
-                    try:
-                        if sb.is_element_visible(renew_button_xpath, timeout=1):
-                            button_found = True
-                            print(f"✅ 续期按钮已出现 (等待 {wait_sec+1} 秒)")
-                            sb.save_screenshot(f"renew_button_found_{email}_{int(time.time())}.png")
-                            break
-                    except:
-                        pass
-                    # 每 10 秒重试点击 Turnstile（以防验证未完成）
-                    if wait_sec % 10 == 0 and wait_sec > 0:
-                        try:
-                            if iframe_found:
-                                sb.switch_to_frame(iframe_selector)
-                                try:
-                                    sb.click('input[type="checkbox"]')
-                                except:
-                                    pass
-                                sb.switch_to_default_content()
-                            else:
-                                sb.uc_gui_click_captcha()
-                        except:
-                            pass
-                    time.sleep(1)
-
-                if not button_found:
-                    print("❌ 续期按钮未出现，Turnstile 验证失败")
-                    sb.save_screenshot(f"renew_button_not_found_{email}_{int(time.time())}.png")
-                    try:
-                        sb.driver.execute_script("""
-                            var modal = document.querySelector('.modal, .overlay, [role="dialog"]');
-                            if (modal) modal.style.display = 'none';
-                        """)
-                    except:
-                        pass
-                    sb.sleep(2)
-                    continue
-
-                # 点击续期按钮
                 print("⏳ 点击续期按钮...")
-                sb.click(renew_button_xpath, timeout=5)
-                print("✅ 已点击续期按钮")
-                sb.save_screenshot(f"clicked_renew_button_{email}_{int(time.time())}.png")
+                try:
+                    sb.click(renew_button_xpath, timeout=5)
+                    print("✅ 已点击续期按钮")
+                    sb.save_screenshot(f"clicked_renew_button_{email}_{int(time.time())}.png")
+                except Exception as e:
+                    print(f"❌ 点击续期按钮失败: {e}")
+                    sb.save_screenshot(f"click_renew_failed_{email}_{int(time.time())}.png")
+                    continue
 
                 print("⏳ 等待续期完成...")
                 sb.sleep(20)
